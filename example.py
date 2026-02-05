@@ -1,14 +1,14 @@
-from MardownRenderer import MarkdownRenderer
+from markdownrenderer import MarkdownRenderer
 import customtkinter as ctk
 import tkinter as tk
 
 
 # ============================================================
-# Aplicação de Demonstração
+# Demo Application
 # ============================================================
 
 def main():
-    """Função principal"""
+    """Main function"""
     root = ctk.CTk()
     root.title("📝 Markdown Editor & Viewer")
     root.geometry("1300x800")
@@ -23,7 +23,7 @@ def main():
                          text_color='white')
     title.pack(side=tk.LEFT, padx=20, pady=10)
     
-    # Botões
+    # Buttons
     btn_frame = ctk.CTkFrame(toolbar, fg_color='transparent')
     btn_frame.pack(side=tk.RIGHT, padx=20)
     
@@ -43,7 +43,7 @@ def main():
                   font=('Segoe UI', 10), fg_color='#27ae60',
                   text_color='white', corner_radius=6).pack(side=tk.LEFT, padx=5)
     
-    # Componente principal
+    # Main component
     content_frame = ctk.CTkFrame(root, fg_color='#f5f5f5', corner_radius=8)
     content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
     
