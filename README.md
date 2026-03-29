@@ -12,7 +12,10 @@
 - Single widget (`CTkMarkdown`) with Markdown rendering
 - Headings, lists, blockquotes, tables, and code blocks
 - Basic syntax highlighting for Python and JavaScript
-- Theme-aware colors for light and dark appearance modes
+- Clickable external links (opens in default browser)
+- Internal anchor navigation (click a link to scroll to a specific section heading)
+- Copy button for code blocks
+- Theme-aware colors and responsive tables for light and dark appearance modes
 
 ## 📦 Installation
 
@@ -59,4 +62,3 @@ Contributions are welcome!
 Ideas:
 - More language grammars for code highlighting
 - Image support
-- Clickable links
