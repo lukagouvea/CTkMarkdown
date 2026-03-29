@@ -32,7 +32,10 @@ class CTkMarkdown(ctk.CTkTextbox):
     }
 
     def __init__(self, master, markdown_text="", **kwargs):
-        defaults = {"cursor": "arrow"}
+        defaults = {
+            "cursor": "arrow",
+            "wrap": "word"
+        }
         if 'bg' in kwargs: kwargs['fg_color'] = kwargs.pop('bg')
         if 'fg' in kwargs: kwargs['text_color'] = kwargs.pop('fg')
         if 'borderwidth' in kwargs: kwargs['border_width'] = kwargs.pop('borderwidth')
