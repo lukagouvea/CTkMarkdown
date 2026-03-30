@@ -8,6 +8,9 @@ import tkinter.font as tkfont
 import customtkinter as ctk
 import re
 import webbrowser
+import io
+import urllib.request
+from PIL import Image
 
 
 class CTkMarkdown(ctk.CTkTextbox):
@@ -313,6 +316,32 @@ class CTkMarkdown(ctk.CTkTextbox):
 
         self._anchors[slug] = mark_name
 
+    def _insert_image(self, alt_text: str, url: str):
+        """Insere uma imagem no texto, baixando-a se for uma URL."""
+        try:
+            if url.startswith('http://') or url.startswith('https://'):
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req) as response:
+                    image_data = response.read()
+                img = Image.open(io.BytesIO(image_data))
+            else:
+                img = Image.open(url)
+
+            # Redimensiona mantendo a proporção para caber bem, opcionalmente
+            max_width = 800
+            max_height = 600
+            if img.width > max_width or img.height > max_height:
+                img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+            
+            ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(img.width, img.height))
+            self._images.append(ctk_img)  # Mantém referência para evitar GC
+            
+            img_label = ctk.CTkLabel(self, text="", image=ctk_img)
+            self._textbox.window_create(tk.END, window=img_label)
+        except Exception as e:
+            # Em caso de erro, apenas mostra o alt text como fallback ou um marcador de erro
+            self.insert(tk.END, f"🖼️ [{alt_text}]", "italic")
+
     # ──────────────────────────────────────────────
     #  Renderização principal
     # ──────────────────────────────────────────────
@@ -323,6 +352,7 @@ class CTkMarkdown(ctk.CTkTextbox):
         self._link_counter = 0
         self._link_tags = []
         self._anchors = {}
+        self._images = []  # Evita garbage collection das imagens
 
         self.configure(state='normal')
         self.delete("0.0", "end")
@@ -448,6 +478,7 @@ class CTkMarkdown(ctk.CTkTextbox):
             r'|(?P<italic>\*(?P<i_text>.+?)\*|_(?P<i_text2>.+?)_)'
             r'|(?P<strike>~~(?P<s_text>.+?)~~)'
             r'|(?P<code>`(?P<c_text>[^`]+)`)'
+            r'|(?P<image>!\[(?P<img_alt>[^\]]*)\]\((?P<img_url>[^)]+)\))'
             r'|(?P<link>\[(?P<l_text>[^\]]+)\]\((?P<l_url>[^)]+)\))'
         )
 
@@ -478,6 +509,8 @@ class CTkMarkdown(ctk.CTkTextbox):
                 content = match.group('c_text')
                 tags = ('code_inline', base_tag) if base_tag else ('code_inline',)
                 self.insert(tk.END, content, tags)
+            elif match.group('image'):
+                self._insert_image(match.group('img_alt'), match.group('img_url'))
             elif match.group('link'):
                 # ← usa _insert_link em vez de tag genérica
                 self._insert_link(
@@ -636,6 +669,21 @@ class CTkMarkdown(ctk.CTkTextbox):
         # O bg do frame age como cor de borda entre células
         table_frame = tk.Frame(self, bg=c['table_border'], padx=0, pady=0)
 
+        # Trata o scroll do mouse para não travar sobre a tabela
+        def forward_scroll(event):
+            # Para Windows/Mac (event.delta) e Linux (event.num)
+            if hasattr(event, "delta") and event.delta != 0:
+                self._textbox.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            elif hasattr(event, "num"):
+                if event.num == 5:
+                    self._textbox.yview_scroll(1, "units")
+                elif event.num == 4:
+                    self._textbox.yview_scroll(-1, "units")
+
+        table_frame.bind("<MouseWheel>", forward_scroll)
+        table_frame.bind("<Button-4>", forward_scroll)
+        table_frame.bind("<Button-5>", forward_scroll)
+
         # Referência para atualização de tema posterior
         all_widgets: list[tuple[tk.Label, str]] = []  # (label, role)
 
@@ -647,6 +695,9 @@ class CTkMarkdown(ctk.CTkTextbox):
                 padx=10, pady=5, relief='flat', anchor='w'
             )
             lbl.grid(row=0, column=col, sticky='nsew', padx=1, pady=1)
+            lbl.bind("<MouseWheel>", forward_scroll)
+            lbl.bind("<Button-4>", forward_scroll)
+            lbl.bind("<Button-5>", forward_scroll)
             all_widgets.append((lbl, 'header'))
 
         for row_idx, row in enumerate(rows):
@@ -661,6 +712,9 @@ class CTkMarkdown(ctk.CTkTextbox):
                     padx=10, pady=5, relief='flat', anchor='w'
                 )
                 lbl.grid(row=row_idx + 1, column=col_idx, sticky='nsew', padx=1, pady=1)
+                lbl.bind("<MouseWheel>", forward_scroll)
+                lbl.bind("<Button-4>", forward_scroll)
+                lbl.bind("<Button-5>", forward_scroll)
                 all_widgets.append((lbl, role))
 
         for col in range(len(headers)):
@@ -685,7 +739,8 @@ class CTkMarkdown(ctk.CTkTextbox):
             pass
 
         self.insert(tk.END, '\n')
-        self._textbox.window_create(tk.END, window=table_frame)
+        # Adiciona um padx de 25 pixels garantindo assim que haja espaço para a scrollbar do CTkTextbox
+        self._textbox.window_create(tk.END, window=table_frame, padx=25)
         self.insert(tk.END, '\n')
 
     # ──────────────────────────────────────────────
@@ -746,6 +801,12 @@ const fetchData = async (url) => {
 | Python     | Dinâmica | ⭐⭐⭐⭐⭐ |
 | JavaScript | Dinâmica | ⭐⭐⭐⭐⭐ |
 | Rust       | Estática | ⭐⭐⭐⭐   |
+
+## Seção E — Imagens
+
+Veja como as imagens são renderizadas!
+
+![Logo Python](https://www.python.org/static/community_logos/python-logo-master-v3-TM.png)
 
 ---
 
