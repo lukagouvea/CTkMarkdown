@@ -690,8 +690,7 @@ class CTkMarkdown(ctk.CTkTextbox):
         c = self._theme_colors[mode]
 
         # Frame que contém label de linguagem + botão copiar
-        header_frame = ctk.CTkFrame(self, bg_color=c['code_block_bg'], fg_color=c['code_block_bg'],
-                                   corner_radius=0)
+        header_frame = tk.Frame(self, bg=c['code_block_bg'])
 
         all_widgets: list[tuple[tk.Label, str]] = []
 
@@ -862,8 +861,7 @@ class CTkMarkdown(ctk.CTkTextbox):
         c = self._theme_colors[mode]
 
         # O bg do frame age como cor de borda entre células
-        table_frame = ctk.CTkFrame(self, bg_color=c['table_border'], fg_color=c['table_border'],
-                                   corner_radius=0)
+        table_frame = tk.Frame(self, bg=c['table_border'], padx=0, pady=0)
 
         # Trata o scroll do mouse para não travar sobre a tabela
         def forward_scroll(event):
