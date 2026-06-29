@@ -11,6 +11,7 @@ import webbrowser
 import io
 import urllib.request
 from PIL import Image
+from typing import Optional, Union, List, Callable
 
 
 class CTkMarkdown(ctk.CTkTextbox):
@@ -34,7 +35,55 @@ class CTkMarkdown(ctk.CTkTextbox):
         'log', 'true', 'false', 'null', 'undefined'
     }
 
-    def __init__(self, master, markdown_text="", **kwargs):
+    def __init__(self, master, markdown_text="", 
+                 fonts:Union[dict[str, str],str,None]=None, 
+                 type_scale:Optional[dict[str,float]]=None,
+                 **kwargs):
+        """Construct a Markdown widget.
+
+        See customtkinterr.CTkTextbox for all inherited options
+
+        Args: 
+            master: widget parent
+            markdown_text: markdown content to initialize with
+            fonts: fonts to use for element types other than body text; 
+                a `dict` with valid keys of 
+                {'header', 'quote', 'list', 'table', 'core'},
+                where the values are the font names,
+                or a single `str` of a font name
+                if that font should apply to everything.
+                By default, the following is used:
+                {        
+                    'header': 'Segoe UI',
+                    'quote': 'Segoe UI',
+                    'list': 'Segoe UI',
+                    'table': 'Consolas',
+                    'code': 'Consolas',
+                }
+            type_scale: relative scale of elements to the body text;
+                a `dict` where the values are the element tags,
+                and the values are the relative scale ratio.
+                By defaut, the following is used:
+                {        
+                    'h1': 1 + 12/15,
+                    'h2': 1 + 8/15,
+                    'h3': 1 + 5/15,
+                    'h4': 1 + 3/15,
+                    'h5': 1 + 2/15,
+                    'h6': 1 + 1/15,
+                    'code_inline': 1,
+                    'code_block': 1,
+                    'code_ui': 9/15, # lang_label & copy_btn
+                    'blockquote': 1,
+                    'list_number': 1, 
+                    'table_header': 10/15,
+                    'table_cell': 10/15,
+                }
+
+        Note: this widget inherits the `font` option from ctk (and tk)
+            and uses it for the body text font and overall size scaling
+        """
+
         defaults = {
             "cursor": "arrow",
             "wrap": "word"
@@ -52,6 +101,74 @@ class CTkMarkdown(ctk.CTkTextbox):
         self._link_tags: list[str] = []  # nomes das tags de link criadas
         self._anchors: dict[str, str] = {}  # slug → nome do mark no textbox
 
+        # --- font ---
+        self._fonts = {        
+            'header': 'Segoe UI',
+            'quote': 'Segoe UI',
+            'list': 'Segoe UI',
+            'table': 'Segoe UI',
+            'code': 'Consolas',
+        }
+        if (isinstance(fonts,str)):
+            self._fonts = {key: fonts 
+                           for key in self._fonts.keys()}
+        elif (isinstance(fonts,dict)):
+            self._fonts = {key: (fonts[key] if (isinstance(fonts.get(key),str)) else value) 
+                           for key, value in self._fonts.items()}
+        else: 
+            # silent default case
+            pass
+
+        # --- type scale ---
+        self._base_font_size = 15 # 15 according to emperical testing
+        self._type_scale = {        
+            'h1': 1 + 12/15,
+            'h2': 1 + 8/15,
+            'h3': 1 + 5/15,
+            'h4': 1 + 3/15,
+            'h5': 1 + 2/15,
+            'h6': 1 + 1/15,
+            'code_inline': 1,
+            'code_block': 1,
+            'code_ui': 9/15, # lang_label & copy_btn
+            'blockquote': 1,
+            'list_number': 1, 
+            'table_header': 10/15,
+            'table_cell': 10/15,
+        }
+        def is_valid_type_scale(x):
+            try:
+                return float(x) >= 0
+            except ValueError:
+                return False
+        if (isinstance(type_scale,dict)):
+            self._type_scale = {key: (type_scale[key] if (is_valid_type_scale(type_scale.get(key))) else value) 
+                           for key, value in self._type_scale.items()}
+        else: 
+            # silent default case
+            pass
+
+        # --- callbacks ---
+        # keep track of callabled added inside the markdown content
+        # so that when the content gets updated, they can be freed accordingly
+
+        # Note: (1) These styling callbacks are needed because some tk elements are
+        # used instead of ctk, so CTkAppearanceModeBaseClass and CTkScalingBaseClass
+        # which handles these aspects are missing. These classes are also not exposed,
+        # so the only solutions are to handle them here or switch to using ctk elements instead.
+        
+        # Note: (2) ctk.ScalingTracker is a bit finicky so scale changes are managed 
+        # directly in _set_scaling
+        
+        # Currently, the tk + custom hander version is actually more consistent
+        # why? because ctk.CTkScalingBaseClass does not deal with ipadx and ipady,
+        # and table uses two layers of padding, one (in init) for label, 
+        # another (in grid) for the borders
+        self._use_tk = True
+
+        self._appearance_callbacks: List[Callable] = []
+        self._scaling_callbacks: List[Callable] = []
+
         self._setup_tags()
         try:
             ctk.AppearanceModeTracker.add(self._apply_theme, self)
@@ -63,11 +180,28 @@ class CTkMarkdown(ctk.CTkTextbox):
     #  Configuração de tags
     # ──────────────────────────────────────────────
 
+    def _scale_tag(self,ratio:float=1):
+        """Scale the tag font based on type scale ratio
+
+        tkinter only accepts interger size in pt,
+        so the output here has to be rounded.
+        """
+        return round(self._base_font_size * ratio)
+
+
     def _setup_tags(self):
         """Configure formatting tags."""
         base_font = tkfont.Font(font=self._textbox.cget('font'))
         base_size = int(base_font.cget('size'))
         base_family = base_font.cget('family')
+        
+        self._base_font_size = base_size
+
+        header_family = self._fonts['header']
+        quote_family = self._fonts['quote']
+        list_family = self._fonts['list']
+        table_family = self._fonts['table']
+        code_family = self._fonts['code']
 
         self._theme_colors = {
             'light': {
@@ -114,44 +248,45 @@ class CTkMarkdown(ctk.CTkTextbox):
             }
         }
 
-        self._textbox.tag_config('h1', font=('Segoe UI', base_size + 12, 'bold'), spacing1=20, spacing3=10)
-        self._textbox.tag_config('h2', font=('Segoe UI', base_size + 8, 'bold'),  spacing1=18, spacing3=8)
-        self._textbox.tag_config('h3', font=('Segoe UI', base_size + 5, 'bold'),  spacing1=15, spacing3=6)
-        self._textbox.tag_config('h4', font=('Segoe UI', base_size + 3, 'bold'),  spacing1=12, spacing3=5)
-        self._textbox.tag_config('h5', font=('Segoe UI', base_size + 2, 'bold'),  spacing1=10, spacing3=4)
-        self._textbox.tag_config('h6', font=('Segoe UI', base_size + 1, 'bold'),  spacing1=8,  spacing3=3)
+        self._textbox.tag_config('h1', font=(header_family, self._scale_tag(self._type_scale['h1']), 'bold'), spacing1=self._scale_tag(20/15), spacing3=self._scale_tag(10/15))
+        self._textbox.tag_config('h2', font=(header_family, self._scale_tag(self._type_scale['h2']), 'bold'),  spacing1=self._scale_tag(18/15), spacing3=self._scale_tag(8/15))
+        self._textbox.tag_config('h3', font=(header_family, self._scale_tag(self._type_scale['h3']), 'bold'),  spacing1=self._scale_tag(15/15), spacing3=self._scale_tag(6/15))
+        self._textbox.tag_config('h4', font=(header_family, self._scale_tag(self._type_scale['h4']), 'bold'),  spacing1=self._scale_tag(12/15), spacing3=self._scale_tag(5/15))
+        self._textbox.tag_config('h5', font=(header_family, self._scale_tag(self._type_scale['h5']), 'bold'),  spacing1=self._scale_tag(10/15), spacing3=self._scale_tag(4/15))
+        self._textbox.tag_config('h6', font=(header_family, self._scale_tag(self._type_scale['h6']), 'bold'),  spacing1=self._scale_tag(8/15),  spacing3=self._scale_tag(3/15))
 
-        self._textbox.tag_config('bold',        font=(base_family, base_size, 'bold'))
-        self._textbox.tag_config('italic',      font=(base_family, base_size, 'italic'))
-        self._textbox.tag_config('bold_italic', font=(base_family, base_size, 'bold italic'))
+        self._textbox.tag_config('bold',        font=(base_family, self._scale_tag(1), 'bold'))
+        self._textbox.tag_config('italic',      font=(base_family, self._scale_tag(1), 'italic'))
+        self._textbox.tag_config('bold_italic', font=(base_family, self._scale_tag(1), 'bold italic'))
         self._textbox.tag_config('strikethrough', overstrike=True)
         self._textbox.tag_config('underline',   underline=True)
 
-        self._textbox.tag_config('code_inline', font=('Consolas', base_size), spacing1=2)
-        self._textbox.tag_config('code_block',  font=('Consolas', base_size),
-                                 spacing1=10, spacing3=10, lmargin1=20, lmargin2=20, rmargin=20)
+        self._textbox.tag_config('code_inline', font=(code_family, self._scale_tag(self._type_scale['code_inline'])), spacing1=self._scale_tag(2/15))
+        self._textbox.tag_config('code_block',  font=(code_family, self._scale_tag(self._type_scale['code_block'])),
+                                 spacing1=self._scale_tag(10/15), spacing3=self._scale_tag(10/15), 
+                                 lmargin1=self._scale_tag(20/15), lmargin2=self._scale_tag(20/15), rmargin=self._scale_tag(20/15))
 
         for tag in ('code_keyword', 'code_string', 'code_comment', 'code_number',
                     'code_function', 'code_class', 'code_decorator', 'code_operator'):
-            self._textbox.tag_config(tag, font=('Consolas', base_size - 1))
+            self._textbox.tag_config(tag, font=(code_family, self._scale_tag(1 - 1/15)))
 
-        self._textbox.tag_config('blockquote', font=('Segoe UI', base_size, 'italic'),
-                                 lmargin1=30, lmargin2=30, spacing1=8, spacing3=8, borderwidth=3)
+        self._textbox.tag_config('blockquote', font=(quote_family, self._scale_tag(self._type_scale['blockquote']), 'italic'),
+                                 lmargin1=self._scale_tag(30/15), lmargin2=self._scale_tag(30/15), spacing1=self._scale_tag(8/15), spacing3=self._scale_tag(8/15), borderwidth=self._scale_tag(3/15))
 
         # Tag genérica de link (visual); cada link terá também uma tag única para binding)
         self._textbox.tag_config('link', underline=True)
         # Cursor é gerenciado por tag, então não vinculamos aqui ao 'link' genérico
 
-        self._textbox.tag_config('list_item',   lmargin1=25, lmargin2=40)
+        self._textbox.tag_config('list_item',   lmargin1=self._scale_tag(25/15), lmargin2=self._scale_tag(40/15))
         self._textbox.tag_config('list_bullet')
-        self._textbox.tag_config('list_number', font=('Segoe UI', base_size, 'bold'))
+        self._textbox.tag_config('list_number', font=(list_family, self._scale_tag(self._type_scale['list_number']), 'bold'))
 
-        self._textbox.tag_config('hr', font=('Segoe UI', 4), spacing1=15, spacing3=15, justify='center')
+        self._textbox.tag_config('hr', font=(list_family, self._scale_tag(4/15)), spacing1=self._scale_tag(15/15), spacing3=self._scale_tag(15/15), justify='center')
 
-        self._textbox.tag_config('table_border', font=('Consolas', base_size))
-        self._textbox.tag_config('table_header', font=('Consolas', base_size, 'bold'))
-        self._textbox.tag_config('table_cell',   font=('Consolas', base_size))
-        self._textbox.tag_config('table_row_alt', font=('Consolas', base_size))
+        self._textbox.tag_config('table_border', font=(table_family, self._scale_tag(1)))
+        self._textbox.tag_config('table_header', font=(table_family, self._scale_tag(1), 'bold'))
+        self._textbox.tag_config('table_cell',   font=(table_family, self._scale_tag(1)))
+        self._textbox.tag_config('table_row_alt', font=(table_family, self._scale_tag(1)))
 
         self._textbox.tag_config('checkbox_done')
         self._textbox.tag_config('checkbox_pending')
@@ -197,6 +332,15 @@ class CTkMarkdown(ctk.CTkTextbox):
         # Atualiza todas as tags de link individuais criadas neste render
         for tag in self._link_tags:
             tb.tag_config(tag, foreground=c['link'], underline=True)
+
+    
+    def _set_scaling(self, *args, **kwargs):
+        super()._set_scaling(*args, **kwargs)
+        # re-calculate scaling for all the tags
+        self._setup_tags()
+        # custom scaling functions for injected widgets
+        for callback in self._scaling_callbacks:
+            callback()
 
     # ──────────────────────────────────────────────
     #  API pública
@@ -356,6 +500,15 @@ class CTkMarkdown(ctk.CTkTextbox):
 
         self.configure(state='normal')
         self.delete("0.0", "end")
+
+        # since we delete all content, 
+        # simply remove all callbacks created in the content
+        # for callback in self._scaling_callbacks:
+            # ctk.ScalingTracker.remove_widget(callback,self)
+        self._scaling_callbacks.clear()
+        for callback in self._appearance_callbacks:
+            ctk.AppearanceModeTracker.remove(callback)
+        self._appearance_callbacks.clear()
 
         lines = text.split('\n')
         i = 0
@@ -539,38 +692,56 @@ class CTkMarkdown(ctk.CTkTextbox):
         # Frame que contém label de linguagem + botão copiar
         header_frame = tk.Frame(self, bg=c['code_block_bg'])
 
-        lang_label = tk.Label(
-            header_frame,
-            text=language.upper() if language else 'CODE',
-            font=('Consolas', 9),
-            bg=c['code_block_bg'],
-            fg=c['code_comment'],
-            padx=10, pady=3, anchor='w'
-        )
-        lang_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        all_widgets: list[tuple[tk.Label, str]] = []
+
+        if self._use_tk:
+            lang_label = tk.Label(
+                header_frame,
+                text=language.upper() if language else 'CODE',
+                font=(self._fonts['code'], self._scale_tag(self._type_scale['code_ui'])), # 9
+                bg=c['code_block_bg'],
+                fg=c['code_comment'],
+                padx=self._scale_tag(10/15), pady=self._scale_tag(3/15), anchor='w'
+            )
+            lang_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        else:
+            lang_label = ctk.CTkLabel(
+                header_frame,
+                text=language.upper() if language else 'CODE',
+                font=(self._fonts['code'], self._scale_tag(self._type_scale['code_ui'])), # 9
+                bg_color=c['code_block_bg'],
+                fg_color=c['code_block_bg'],
+                text_color=c['code_comment'],
+                corner_radius=0,height=0
+            )
+            lang_label.pack(side=tk.LEFT, fill=tk.X, expand=True,
+                            padx=self._scale_tag(10/15), pady=self._scale_tag(3/15), anchor='w')
+        all_widgets.append((lang_label,'lbl'))
 
         def copy_to_clipboard(code_content=code):
             self.clipboard_clear()
             self.clipboard_append(code_content)
-            copy_btn.configure(text='✓ Copiado!', bg=c['copy_btn_active_bg'], fg=c['copy_btn_active_fg'])
+            copy_btn.configure(text='✓', bg=c['copy_btn_active_bg'], fg=c['copy_btn_active_fg']) # Copiado!
             self.after(1500, lambda: copy_btn.configure(
-                text='⎘ Copiar', bg=c['copy_btn_bg'], fg=c['copy_btn_fg']
+                text='⎘', bg=c['copy_btn_bg'], fg=c['copy_btn_fg'] # Copiar
             ))
 
         copy_btn = tk.Button(
             header_frame,
-            text='⎘ Copiar',
-            font=('Segoe UI', 9),
+            text='⎘', # Copiar
+            font=(self._fonts['table'], self._scale_tag(self._type_scale['code_ui'])), # 9
             bg=c['copy_btn_bg'],
             fg=c['copy_btn_fg'],
             activebackground=c['copy_btn_active_bg'],
             activeforeground=c['copy_btn_active_fg'],
             relief='flat',
-            padx=8, pady=3,
+            padx=self._scale_tag(8/15), pady=self._scale_tag(3/15),
             cursor='hand2',
             command=copy_to_clipboard
         )
+
         copy_btn.pack(side=tk.RIGHT, padx=6, pady=3)
+        all_widgets.append((copy_btn,'btn'))
 
         self._textbox.window_create(tk.END, window=header_frame)
         self.insert(tk.END, '\n')
@@ -584,6 +755,29 @@ class CTkMarkdown(ctk.CTkTextbox):
             self.insert(tk.END, code + '\n', 'code_block')
 
         self.insert(tk.END, '\n')
+
+        # registers callback for scale updates
+        def update_code_scale(new_window_scale=None, new_widget_scale=None, widgets=all_widgets):
+            # the scales are maintained internally
+            for lbl, role in widgets:
+                if role == 'lbl': # labels can be switched to ctk
+                    if self._use_tk:
+                        lbl.configure(font=(self._fonts['code'], self._scale_tag(self._type_scale['code_ui'])),
+                                        padx=self._scale_tag(10/15),
+                                        pady=self._scale_tag(3/15)
+                                        )
+                elif role == 'btn': # ctk.CTkButton is significantly different from tk.Button, 
+                    # so instead of a direct refactor, we use this custom update code
+                    lbl.configure(font=(self._fonts['table'], self._scale_tag(self._type_scale['code_ui'])),
+                                  padx=self._scale_tag(8/15),
+                                  pady=self._scale_tag(3/15)
+                                  )
+
+        try:
+            # ctk.ScalingTracker.add_widget(update_code_scale, self)
+            self._scaling_callbacks.append(update_code_scale)
+        except Exception:
+            pass
 
     # ──────────────────────────────────────────────
     #  Realce sintático
@@ -686,15 +880,28 @@ class CTkMarkdown(ctk.CTkTextbox):
 
         # Referência para atualização de tema posterior
         all_widgets: list[tuple[tk.Label, str]] = []  # (label, role)
-
+        
         for col, header in enumerate(headers):
-            lbl = tk.Label(
-                table_frame, text=header,
-                font=('Segoe UI', 10, 'bold'),
-                bg=c['table_header_bg'], fg=c['table_header_fg'],
-                padx=10, pady=5, relief='flat', anchor='w'
-            )
-            lbl.grid(row=0, column=col, sticky='nsew', padx=1, pady=1)
+            if self._use_tk:
+                lbl = tk.Label(
+                    table_frame, text=header,
+                    font=(self._fonts['table'], self._scale_tag(self._type_scale['table_header']), 'bold'), # 10
+                    bg=c['table_header_bg'], fg=c['table_header_fg'],
+                    padx=self._scale_tag(10/15), pady=self._scale_tag(5/15), relief='flat', anchor='w'
+                )
+                lbl.grid(row=0, column=col, sticky='nsew', padx=1, pady=1)
+            else: 
+                lbl = ctk.CTkLabel(
+                    table_frame, text=header,
+                    font=(self._fonts['table'], self._scale_tag(self._type_scale['table_header']), 'bold'), # 10
+                    bg_color=c['table_header_bg'],
+                    fg_color=c['table_header_bg'],
+                    text_color=c['table_header_fg'],
+                    corner_radius=0,height=0
+                )
+                lbl.grid(row=0, column=col, sticky='nsew', padx=1, pady=1,
+                        ipadx=self._scale_tag(10/15), ipady=self._scale_tag(5/15)
+                        )
             lbl.bind("<MouseWheel>", forward_scroll)
             lbl.bind("<Button-4>", forward_scroll)
             lbl.bind("<Button-5>", forward_scroll)
@@ -705,13 +912,26 @@ class CTkMarkdown(ctk.CTkTextbox):
             for col_idx in range(len(headers)):
                 cell_text = row[col_idx] if col_idx < len(row) else ""
                 bg = c['table_row_alt_bg'] if role == 'alt' else c['table_cell_bg']
-                lbl = tk.Label(
-                    table_frame, text=cell_text,
-                    font=('Segoe UI', 10),
-                    bg=bg, fg=c['table_cell_fg'],
-                    padx=10, pady=5, relief='flat', anchor='w'
-                )
-                lbl.grid(row=row_idx + 1, column=col_idx, sticky='nsew', padx=1, pady=1)
+                if self._use_tk:
+                    lbl = tk.Label(
+                        table_frame, text=cell_text,
+                        font=(self._fonts['table'], self._scale_tag(self._type_scale['table_cell'])), # 10
+                        bg=bg, fg=c['table_cell_fg'],
+                        padx=self._scale_tag(10/15), pady=self._scale_tag(5/15), relief='flat', anchor='w'
+                    )
+                    lbl.grid(row=row_idx+1, column=col_idx, sticky='nsew', padx=1, pady=1)
+                else: 
+                    lbl = ctk.CTkLabel(
+                        table_frame, text=cell_text,
+                        font=(self._fonts['table'], self._scale_tag(self._type_scale['table_cell'])), # 10
+                        bg_color=bg,
+                        fg_color=bg,
+                        text_color=c['table_cell_fg'],
+                        corner_radius=0,height=0
+                    )
+                    lbl.grid(row=row_idx+1, column=col_idx, sticky='nsew', padx=1, pady=1,
+                            ipadx=self._scale_tag(10/15), ipady=self._scale_tag(5/15)
+                            )
                 lbl.bind("<MouseWheel>", forward_scroll)
                 lbl.bind("<Button-4>", forward_scroll)
                 lbl.bind("<Button-5>", forward_scroll)
@@ -720,23 +940,45 @@ class CTkMarkdown(ctk.CTkTextbox):
         for col in range(len(headers)):
             table_frame.columnconfigure(col, weight=1)
 
-        # Registra callback para atualização de tema ← novo
-        def update_table_theme(new_mode=None, widgets=all_widgets, frame=table_frame):
-            m = self._get_mode(new_mode)
-            tc = self._theme_colors[m]
-            frame.configure(bg=tc['table_border'])
-            for lbl, role in widgets:
-                if role == 'header':
-                    lbl.configure(bg=tc['table_header_bg'], fg=tc['table_header_fg'])
-                elif role == 'alt':
-                    lbl.configure(bg=tc['table_row_alt_bg'], fg=tc['table_cell_fg'])
-                else:
-                    lbl.configure(bg=tc['table_cell_bg'], fg=tc['table_cell_fg'])
+        if self._use_tk:
+            # Registra callback para atualização de tema ← novo
+            def update_table_theme(new_mode=None, widgets=all_widgets, frame=table_frame):
+                m = self._get_mode(new_mode)
+                tc = self._theme_colors[m]
+                frame.configure(bg=tc['table_border'])
+                for lbl, role in widgets:
+                    if role == 'header':
+                        lbl.configure(bg=tc['table_header_bg'], fg=tc['table_header_fg'])
+                    elif role == 'alt':
+                        lbl.configure(bg=tc['table_row_alt_bg'], fg=tc['table_cell_fg'])
+                    else:
+                        lbl.configure(bg=tc['table_cell_bg'], fg=tc['table_cell_fg'])
 
-        try:
-            ctk.AppearanceModeTracker.add(update_table_theme, self)
-        except Exception:
-            pass
+            # registers callback for scale updates
+            def update_table_scale(new_window_scale=None, new_widget_scale=None, widgets=all_widgets):
+                # the scales are maintained internally
+                for lbl, role in widgets:
+                    if role == 'header':
+                        lbl.configure(font=(self._fonts['table'], self._scale_tag(self._type_scale['table_header']), 'bold'),
+                                    padx=self._scale_tag(10/15), pady=self._scale_tag(5/15)
+                                    )
+                    else:
+                        lbl.configure(font=(self._fonts['table'], self._scale_tag(self._type_scale['table_cell'])),
+                                    padx=self._scale_tag(10/15), pady=self._scale_tag(5/15)
+                                    )
+                pass
+
+            try:
+                ctk.AppearanceModeTracker.add(update_table_theme, self)
+                self._appearance_callbacks.append(update_table_theme)
+            except Exception:
+                pass
+
+            try:
+                # ctk.ScalingTracker.add_widget(update_table_scale, self)
+                self._scaling_callbacks.append(update_table_scale)
+            except Exception:
+                pass
 
         self.insert(tk.END, '\n')
         # Adiciona um padx de 25 pixels garantindo assim que haja espaço para a scrollbar do CTkTextbox
