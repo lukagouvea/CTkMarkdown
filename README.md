@@ -62,3 +62,14 @@ Contributions are welcome!
 Ideas:
 - More language grammars for code highlighting
 - Image support
+
+## Update to _insert_table
+1. The font passed to __init__ is used with the table, headers and cells
+2. Allowed \<br\> to show line breaks in cells
+3. The labels used in the table cells are multilined and word wrapped
+
+## Phoenix Light Mode
+![Updated table rendering](images/TableUpdate.png)
+
+## Phoenix Dark Mode
+![Updated table rendering Darl Mode](images/TableUpdate-dark.png)

@@ -51,6 +51,7 @@ class CTkMarkdown(ctk.CTkTextbox):
         self._link_counter = 0      # contador para gerar tags únicas por link
         self._link_tags: list[str] = []  # nomes das tags de link criadas
         self._anchors: dict[str, str] = {}  # slug → nome do mark no textbox
+        self._images: list[ctk.CTkImage]
 
         self._setup_tags()
         try:
@@ -229,7 +230,7 @@ class CTkMarkdown(ctk.CTkTextbox):
         text = text.replace(' ', '-')   # substitui espaço a espaço, sem colapsar
         return text
 
-    def _insert_link(self, text: str, url: str, base_tag: str = None):
+    def _insert_link(self, text: str, url: str, base_tag: str | None = None):
         """
         Insere texto de link com uma tag única para binding de evento.
         - URLs externas (http/https): abre no navegador.
@@ -360,7 +361,7 @@ class CTkMarkdown(ctk.CTkTextbox):
         lines = text.split('\n')
         i = 0
         in_code_block = False
-        code_block_content = []
+        code_block_content: list[str] = []
         code_language = ""
 
         while i < len(lines):
@@ -470,7 +471,7 @@ class CTkMarkdown(ctk.CTkTextbox):
     #  Formatação inline
     # ──────────────────────────────────────────────
 
-    def _insert_formatted_text(self, text: str, base_tag: str = None):
+    def _insert_formatted_text(self, text: str, base_tag: str | None = None):
         """Insere texto com formatação inline (negrito, itálico, links, etc.)."""
         pattern = re.compile(
             r'(?P<bold_italic>\*\*\*(?P<bi_text>.+?)\*\*\*|___(?P<bi_text2>.+?)___)'
@@ -653,8 +654,12 @@ class CTkMarkdown(ctk.CTkTextbox):
         if len(table_lines) < 2:
             return
 
+        def table_text(text: str) -> str:
+            return re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+        
         header_line = table_lines[0].strip().strip('|')
-        headers = [c.strip() for c in header_line.split('|')]
+        #headers = [c.strip() for c in header_line.split('|')]
+        headers =  [table_text(c.strip()) for c in header_line.split('|')]
 
         rows = []
         for line in table_lines[2:]:
@@ -690,7 +695,8 @@ class CTkMarkdown(ctk.CTkTextbox):
         for col, header in enumerate(headers):
             lbl = tk.Label(
                 table_frame, text=header,
-                font=('Segoe UI', 10, 'bold'),
+                # font=('Segoe UI', 10, 'bold'),
+                font=self._textbox.cget('font'),
                 bg=c['table_header_bg'], fg=c['table_header_fg'],
                 padx=10, pady=5, relief='flat', anchor='w'
             )
@@ -703,13 +709,24 @@ class CTkMarkdown(ctk.CTkTextbox):
         for row_idx, row in enumerate(rows):
             role = 'alt' if row_idx % 2 == 1 else 'cell'
             for col_idx in range(len(headers)):
-                cell_text = row[col_idx] if col_idx < len(row) else ""
+                #cell_text = row[col_idx] if col_idx < len(row) else ""
+                #cell_text = row[col_idx] if col_idx < len(row) else ""
+                cell_text = table_text(row[col_idx]) if col_idx < len(row) else ""
+                cell_text = re.sub(r'<br\s*/?>', '\n', cell_text, flags=re.IGNORECASE)                
                 bg = c['table_row_alt_bg'] if role == 'alt' else c['table_cell_bg']
                 lbl = tk.Label(
-                    table_frame, text=cell_text,
-                    font=('Segoe UI', 10),
-                    bg=bg, fg=c['table_cell_fg'],
-                    padx=10, pady=5, relief='flat', anchor='w'
+                    table_frame, 
+                    text=cell_text,
+                    #font=(self.font.cget('family'), self.font.cget('size')),   #('Segoe UI', 10),
+                    font=self._textbox.cget('font'),
+                    bg=bg, 
+                    fg=c['table_cell_fg'],
+                    padx=10, 
+                    pady=5, 
+                    relief='flat', 
+                    anchor='nw',
+                    justify='left',
+                    wraplength=500,
                 )
                 lbl.grid(row=row_idx + 1, column=col_idx, sticky='nsew', padx=1, pady=1)
                 lbl.bind("<MouseWheel>", forward_scroll)
